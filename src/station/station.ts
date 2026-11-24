@@ -3,14 +3,17 @@ import {
   PALETTE, compile, drawBase, drawInk, fillRegion, finish, makeCanvas, outlineImage, patternTile, regionAt,
   type Template,
 } from "../coloring.ts";
+import { enableSound, pop } from "../sounds.ts";
 import { PATTERNS, SPECIES, type PatternKind, type Species } from "../species.ts";
 
 type Tool = "fill" | "brush" | "pattern" | "eraser";
 type Point = { x: number; y: number };
 
-/** Brush widths as a fraction of the template width. A new drawing starts on the second-smallest. */
-const BRUSH_SIZES = [0.01, 0.02, 0.045, 0.085];
+/** Brush widths as a fraction of the template width. A new drawing starts on the middle one. */
+const BRUSH_SIZES = [0.02, 0.045, 0.085];
 const DEFAULT_BRUSH = 1;
+/** How far a stroke goes between soft pops, as a fraction of the template width. */
+const POP_STEP = 0.05;
 const UNDO_LIMIT = 12;
 /** Seconds without a touch before an unfinished drawing is dropped for the next child. */
 const IDLE_SECONDS = Number(new URLSearchParams(location.search).get("idle") ?? 120);
@@ -144,13 +147,13 @@ function renderOptions() {
     }
     return;
   }
-  BRUSH_SIZES.forEach((size, i) => {
+  BRUSH_SIZES.forEach((_, i) => {
     const b = document.createElement("button");
     b.classList.toggle("active", i === brush);
-    b.setAttribute("aria-label", ["Tiny", "Small", "Medium", "Large"][i]);
+    b.setAttribute("aria-label", ["Small", "Medium", "Large"][i]);
     const dot = document.createElement("span");
     dot.className = "dot";
-    dot.style.width = dot.style.height = `${Math.round(4 + size * 380)}px`;
+    dot.style.width = dot.style.height = `${12 + i * 14}px`;
     if (tool === "eraser") dot.style.background = "#fff";
     b.append(dot);
     b.addEventListener("click", () => {
@@ -213,7 +216,9 @@ function toTemplate(e: PointerEvent): Point {
 }
 
 let activePointer: number | null = null;
-let stroke: { last: Point; mid: Point } | null = null;
+/** The stroke being drawn; `travel` is how far it has gone since the last pop, in template units. */
+let stroke: { last: Point; mid: Point; travel: number } | null = null;
+let lastStrokePop = 0;
 
 function brushStyle() {
   paint.setTransform(scale, 0, 0, scale, 0, 0);
@@ -231,7 +236,8 @@ function strokeStart(p: Point) {
   paint.arc(p.x, p.y, paint.lineWidth / 2, 0, Math.PI * 2);
   paint.fill();
   paint.restore();
-  stroke = { last: p, mid: p };
+  stroke = { last: p, mid: p, travel: 0 };
+  pop(1.1, 0.25);
 }
 
 function strokeTo(p: Point) {
@@ -244,7 +250,14 @@ function strokeTo(p: Point) {
   paint.quadraticCurveTo(stroke.last.x, stroke.last.y, mid.x, mid.y);
   paint.stroke();
   paint.restore();
-  stroke = { last: p, mid };
+  let travel = stroke.travel + Math.hypot(p.x - stroke.last.x, p.y - stroke.last.y);
+  // Soft bubble pops at random pitches every short stretch of the stroke, no faster than 11 a second.
+  if (travel > POP_STEP * template!.species.width && performance.now() - lastStrokePop > 90) {
+    travel = 0;
+    lastStrokePop = performance.now();
+    pop(0.8 + Math.random() * 0.6, 0.15);
+  }
+  stroke = { last: p, mid, travel };
 }
 
 function strokeEnd() {
@@ -260,7 +273,9 @@ function strokeEnd() {
   stroke = null;
 }
 
-frame.addEventListener("pointerdown", (e) => {
+// The whole blue drawing area takes strokes, not just the animal's box, so a stroke that starts beside the
+// animal still paints once it reaches it.
+stage.addEventListener("pointerdown", (e) => {
   if (!template || activePointer !== null) return;
   e.preventDefault();
   touched();
@@ -270,9 +285,10 @@ frame.addEventListener("pointerdown", (e) => {
     if (region < 0) return;
     pushUndo();
     fillRegion(paint, template, region, tool === "pattern" ? { color, pattern } : { color }, scale);
+    pop(0.75, 0.4);
   } else {
     activePointer = e.pointerId;
-    frame.setPointerCapture(e.pointerId);
+    stage.setPointerCapture(e.pointerId);
     pushUndo();
     strokeStart(p);
   }
@@ -280,7 +296,7 @@ frame.addEventListener("pointerdown", (e) => {
   refresh();
 });
 
-frame.addEventListener("pointermove", (e) => {
+stage.addEventListener("pointermove", (e) => {
   if (e.pointerId !== activePointer) return;
   const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
   for (const ev of events.length ? events : [e]) strokeTo(toTemplate(ev));
@@ -291,8 +307,8 @@ const release = (e: PointerEvent) => {
   activePointer = null;
   strokeEnd();
 };
-frame.addEventListener("pointerup", release);
-frame.addEventListener("pointercancel", release);
+stage.addEventListener("pointerup", release);
+stage.addEventListener("pointercancel", release);
 
 // Sending
 
@@ -325,6 +341,8 @@ async function send() {
   try {
     const blob = await upload(template);
     template = null;
+    pop(1, 0.35);
+    pop(1.5, 0.35, 0.12);
     document.body.classList.add("busy");
     await swimOff(blob, species).catch((err) => console.warn("Swim-off animation failed", err));
     showSent(species);
@@ -450,7 +468,15 @@ setInterval(() => {
   if (document.body.dataset.screen === "color" && Date.now() - lastTouch > IDLE_SECONDS * 1000) goPick();
 }, 1000);
 
-document.addEventListener("pointerdown", touched, { capture: true });
+enableSound();
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    touched();
+    if (e.target instanceof Element && e.target.closest("button")) pop();
+  },
+  { capture: true },
+);
 document.addEventListener("gesturestart", (e) => e.preventDefault());
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 document.addEventListener("dblclick", (e) => e.preventDefault());

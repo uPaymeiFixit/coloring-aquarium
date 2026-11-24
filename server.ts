@@ -11,8 +11,8 @@ import { speciesById } from "./src/species.ts";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const DATA_DIR = process.env.DATA_DIR ?? join(import.meta.dir, "data");
-/** Drawings kept in the tank. When a new one arrives past this, the oldest swims away and is deleted. */
-const TANK_SIZE = Number(process.env.TANK_SIZE ?? 30);
+/** Drawings kept in the tank; 0 means no limit. Past a limit, the oldest swims away and is deleted. */
+const TANK_SIZE = Number(process.env.TANK_SIZE ?? 0);
 /** Pre-colored starter animals put in an empty tank. Each new drawing replaces the oldest one. */
 const STARTERS = Number(process.env.STARTERS ?? 8);
 /** Seconds a station must wait between sends. */
@@ -36,6 +36,8 @@ interface Fish {
 const imagePath = (id: string) => join(FISH_DIR, `${id}.png`);
 const newId = () => `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
 const isStarter = (f: Fish) => f.preset !== undefined;
+/** The oldest drawings past the tank's limit, if it has one. */
+const overLimit = (drawings: Fish[]) => (TANK_SIZE > 0 ? drawings.slice(0, Math.max(0, drawings.length - TANK_SIZE)) : []);
 
 await mkdir(FISH_DIR, { recursive: true });
 const saved = await loadTank();
@@ -64,7 +66,7 @@ async function loadTank(): Promise<{ fish: Fish[]; isNew: boolean }> {
       if (isStarter(f) ? f.preset! < species.presets.length : await Bun.file(imagePath(f.id)).exists()) kept.push(f);
     }
     const drawings = kept.filter((f) => !isStarter(f));
-    const dropped = new Set(drawings.slice(0, Math.max(0, drawings.length - TANK_SIZE)));
+    const dropped = new Set(overLimit(drawings));
     for (const f of dropped) await unlink(imagePath(f.id)).catch(() => {});
     return { fish: kept.filter((f) => !dropped.has(f)), isNew: Array.isArray(content) };
   } catch (err) {
@@ -120,9 +122,8 @@ async function addFish(req: Request, sender: string): Promise<Response> {
   await Bun.write(imagePath(id), body);
   const fish: Fish = { id, species, createdAt: now, url: `/fish/${id}.png` };
   tank.push(fish);
-  // The drawing replaces the oldest starter while any are left; past TANK_SIZE the oldest drawing goes too.
-  const drawings = tank.filter((f) => !isStarter(f));
-  const gone = [tank.find(isStarter), ...drawings.slice(0, Math.max(0, drawings.length - TANK_SIZE))].filter(
+  // The drawing replaces the oldest starter while any are left, and the oldest drawing past a limit, if set.
+  const gone = [tank.find(isStarter), ...overLimit(tank.filter((f) => !isStarter(f)))].filter(
     (f): f is Fish => f !== undefined,
   );
   tank = tank.filter((f) => !gone.includes(f));

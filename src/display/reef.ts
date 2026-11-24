@@ -1,29 +1,53 @@
-// Paints the tank backdrop (distant reef, sand, rocks and corals) and places the seagrass and bubble vents.
-// Drawn once per screen size in world units: the tank is 1000 units tall.
+// Paints the tank's scenery for the 3D view: the distant reef on the back wall, the sand floor seen from above,
+// rock-and-coral clusters that stand on the sand, and where seagrass grows and bubbles rise. Positions are tank
+// coordinates: x across (0..width at the front glass, wider further back) and z back from the glass.
 import { makeCanvas } from "../coloring.ts";
+
+export interface Cluster {
+  canvas: HTMLCanvasElement;
+  x: number;
+  z: number;
+  width: number;
+  height: number;
+  /** How far the cluster's foot sits below the sand, hiding its bottom edge. */
+  sink: number;
+}
 
 export interface Blade {
   x: number;
-  y: number;
+  z: number;
   height: number;
   width: number;
   color: readonly [number, number, number];
   phase: number;
-  /** In front of the animals instead of behind them. */
-  front: boolean;
 }
 
-export interface Reef {
-  canvas: HTMLCanvasElement;
+export interface Scenery {
+  /** The back wall's painting and its size; its bottom edge meets the sand. */
+  wall: { canvas: HTMLCanvasElement; width: number; height: number };
+  /** The sand seen from above: canvas top is the back of the tank. */
+  floor: { canvas: HTMLCanvasElement; left: number; right: number; front: number; back: number };
+  clusters: Cluster[];
   blades: Blade[];
-  vents: { x: number; y: number }[];
+  vents: { x: number; z: number }[];
 }
+
+export interface TankShape {
+  width: number;
+  height: number;
+  depth: number;
+  camera: number;
+}
+
+type Random = () => number;
 
 const CORALS = ["#f08a7e", "#f4a06b", "#9c6fd0", "#d06aa8", "#e9c45a", "#5fb49a", "#f39a4a", "#b79be6", "#ef7d9a"];
 const GRASS = [[0.25, 0.6, 0.31], [0.36, 0.72, 0.36], [0.18, 0.49, 0.31], [0.45, 0.66, 0.25]] as const;
+/** Canvas pixels per world unit for the coral clusters. */
+const CLUSTER_PIXELS = 2;
 
 /** Small seeded random generator (mulberry32), so the reef looks the same on every load. */
-function seeded(seed: number) {
+function seeded(seed: number): Random {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -39,47 +63,10 @@ function shade(hex: string, amount: number): string {
   return `rgb(${mix(n >> 16)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`;
 }
 
-export function paintReef(pixelWidth: number, pixelHeight: number, W: number, H: number): Reef {
-  const canvas = makeCanvas(pixelWidth, pixelHeight);
-  const g = canvas.getContext("2d")!;
-  const random = seeded(11);
+/** Drawing helpers for reef things, all in world units on `g`. */
+function brushes(g: CanvasRenderingContext2D, random: Random) {
   const R = (a: number, b: number) => a + (b - a) * random();
   const pick = <T>(list: readonly T[]) => list[Math.floor(random() * list.length)];
-  g.setTransform(pixelWidth / W, 0, 0, pixelHeight / H, 0, 0);
-  g.lineCap = g.lineJoin = "round";
-
-  const ridge = (base: number, amp: number, color: string, seed: number) => {
-    g.beginPath();
-    g.moveTo(0, H);
-    for (let x = 0; x <= W + 20; x += 20) {
-      const wave = 0.55 * Math.sin(x * 0.0041 + seed) + 0.3 * Math.sin(x * 0.011 + seed * 2.1) + 0.15 * Math.sin(x * 0.027 + seed * 3.7);
-      g.lineTo(x, base - amp * wave);
-    }
-    g.lineTo(W, H);
-    g.closePath();
-    g.fillStyle = color;
-    g.fill();
-  };
-
-  const distantCoral = (x: number, y: number, s: number) => {
-    g.fillStyle = g.strokeStyle = `rgba(${Math.round(R(55, 85))}, ${Math.round(R(118, 142))}, ${Math.round(R(165, 188))}, 0.5)`;
-    if (random() < 0.5) {
-      g.beginPath();
-      g.ellipse(x, y, s, s * 0.7, 0, Math.PI, 0);
-      g.fill();
-      return;
-    }
-    g.lineWidth = s * 0.18;
-    for (let k = 0; k < 4; k++) {
-      const spread = (k - 1.5) * s;
-      g.beginPath();
-      g.moveTo(x + spread * 0.25, y);
-      g.quadraticCurveTo(x + spread * 0.5, y - s * 0.6, x + spread * 0.4 + R(-8, 8), y - s * R(0.8, 1.3));
-      g.stroke();
-    }
-  };
-
-  const sandTop = (x: number) => 0.86 * H + 9 * Math.sin(x * 0.006 + 1.3) + 5 * Math.sin(x * 0.017 + 0.4);
 
   const roundedTop = (x: number, y: number, w: number, h: number, r: number) => {
     g.beginPath();
@@ -229,41 +216,7 @@ export function paintReef(pixelWidth: number, pixelHeight: number, W: number, H:
     }
   };
 
-  const starfish = (x: number, y: number, r: number, color: string) => {
-    const turn = R(0, Math.PI * 2);
-    g.beginPath();
-    for (let k = 0; k < 10; k++) {
-      const a = turn + (k * Math.PI) / 5, rr = k % 2 ? r * 0.42 : r;
-      const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr * 0.55;
-      if (k) g.lineTo(px, py);
-      else g.moveTo(px, py);
-    }
-    g.closePath();
-    g.fillStyle = color;
-    g.fill();
-    g.strokeStyle = shade(color, -0.25);
-    g.lineWidth = 1.5;
-    g.stroke();
-  };
-
-  const shell = (x: number, y: number, s: number, color: string) => {
-    g.fillStyle = color;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.arc(x, y, s, Math.PI * 1.05, Math.PI * 1.95);
-    g.closePath();
-    g.fill();
-    g.strokeStyle = shade(color, -0.3);
-    g.lineWidth = 1.2;
-    for (let k = 1; k < 5; k++) {
-      const a = Math.PI * (1.05 + (k * 0.9) / 5);
-      g.beginPath();
-      g.moveTo(x, y);
-      g.lineTo(x + Math.cos(a) * s, y + Math.sin(a) * s);
-      g.stroke();
-    }
-  };
-
+  /** Any coral, sitting on (x, y). */
   const coral = (x: number, y: number, size: number) => {
     const color = pick(CORALS);
     const kind = pick(["branching", "brain", "fan", "tubes", "anemone", "plate"] as const);
@@ -275,7 +228,7 @@ export function paintReef(pixelWidth: number, pixelHeight: number, W: number, H:
     else plate(x, y, size, color);
   };
 
-  /** A rounded rock on the sand; returns the height of its top at x. */
+  /** A rounded rock with its foot at `base`; returns the height of its top at x. */
   const rock = (cx: number, base: number, width: number, height: number) => {
     const x0 = cx - width / 2;
     const seed = R(0, 10);
@@ -315,80 +268,196 @@ export function paintReef(pixelWidth: number, pixelHeight: number, W: number, H:
     return top;
   };
 
-  // Distant reef, fading into the water.
-  ridge(0.74 * H, 34, "rgba(40, 112, 160, 0.45)", 1.3);
-  for (let x = R(0, 60); x < W; x += R(70, 160)) distantCoral(x, 0.74 * H + R(-10, 20), R(30, 70));
-  ridge(0.8 * H, 24, "rgba(30, 90, 132, 0.75)", 4.1);
-
-  // Sand with ripples and pebbles.
-  g.beginPath();
-  g.moveTo(0, H);
-  for (let x = 0; x <= W + 10; x += 10) g.lineTo(x, sandTop(x));
-  g.lineTo(W, H);
-  g.closePath();
-  const sand = g.createLinearGradient(0, 0.84 * H, 0, H);
-  sand.addColorStop(0, "#e9d8a6");
-  sand.addColorStop(1, "#c3a36b");
-  g.fillStyle = sand;
-  g.fill();
-  g.strokeStyle = "rgba(160, 128, 80, 0.28)";
-  g.lineWidth = 2.2;
-  for (let k = 1; k < 9; k++) {
+  /** Seen from above, lying on the sand. */
+  const starfish = (x: number, y: number, r: number, color: string) => {
+    const turn = R(0, Math.PI * 2);
     g.beginPath();
-    for (let x = 0; x <= W; x += 15) {
-      const y = sandTop(x) + k * 16 + 3 * Math.sin(x * 0.03 + k * 1.7);
-      if (x) g.lineTo(x, y);
-      else g.moveTo(x, y);
+    for (let k = 0; k < 10; k++) {
+      const a = turn + (k * Math.PI) / 5, rr = k % 2 ? r * 0.42 : r;
+      if (k) g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+      else g.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
     }
-    g.stroke();
-  }
-  for (let k = 0; k < W / 9; k++) {
-    const x = R(0, W);
-    g.fillStyle = pick(["#cdb07a", "#b49565", "#e8d9ad", "#a98d62"]);
-    g.beginPath();
-    g.ellipse(x, R(sandTop(x) + 8, H), R(2, 5), R(1.5, 3.5), 0, 0, Math.PI * 2);
+    g.closePath();
+    g.fillStyle = color;
     g.fill();
-  }
+    g.strokeStyle = shade(color, -0.25);
+    g.lineWidth = 1.5;
+    g.stroke();
+  };
 
-  // Rocks with corals on top; the outer rocks are taller to frame the tank.
-  const rocks = Math.max(3, Math.round(W / 430));
-  for (let k = 0; k < rocks; k++) {
-    const edge = k === 0 || k === rocks - 1;
-    const cx = ((k + 0.5) / rocks) * W + R(-0.15, 0.15) * (W / rocks);
-    const width = R(170, 280) * (edge ? 1.25 : 1);
-    const height = R(60, 120) * (edge ? 1.5 : 1);
-    const top = rock(cx, sandTop(cx) + 20, width, height);
-    const n = edge ? 4 : 3;
-    for (let i = 0; i < n; i++) {
-      const x = cx + (i / (n - 1) - 0.5) * width * 0.7 + R(-15, 15);
-      coral(x, top(x) + 6, R(50, 100) * (edge ? 1.2 : 1));
-    }
-  }
-
-  // Smaller things on the open sand.
-  for (let x = R(40, 120); x < W; x += R(140, 260)) {
-    const y = sandTop(x) + R(14, 40);
-    const kind = pick(["anemone", "brain", "starfish", "starfish", "shell"] as const);
-    if (kind === "anemone") anemone(x, y, R(40, 60), pick(CORALS));
-    else if (kind === "brain") brain(x, y, R(18, 28), pick(CORALS));
-    else if (kind === "starfish") starfish(x, y, R(10, 16), pick(["#ff8a50", "#e8383d", "#ffb347", "#c34bd6"]));
-    else shell(x, y, R(7, 11), pick(["#f6e7d0", "#f2c9b8", "#e6d5f2"]));
-  }
-
-  const blades: Blade[] = [];
-  const tuft = (x: number, y: number, count: number, tall: number, front: boolean) => {
-    for (let i = 0; i < count; i++) {
-      blades.push({ x: x + R(-18, 18), y: y + R(0, 8), height: tall * R(0.55, 1), width: R(7, 12), color: pick(GRASS), phase: R(0, Math.PI * 2), front });
+  /** Seen from above, lying on the sand. */
+  const shell = (x: number, y: number, s: number, color: string) => {
+    const turn = R(0, Math.PI * 2);
+    g.fillStyle = color;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.arc(x, y, s, turn + Math.PI * 1.05, turn + Math.PI * 1.95);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = shade(color, -0.3);
+    g.lineWidth = 1.2;
+    for (let k = 1; k < 5; k++) {
+      const a = turn + Math.PI * (1.05 + (k * 0.9) / 5);
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + Math.cos(a) * s, y + Math.sin(a) * s);
+      g.stroke();
     }
   };
-  for (let x = R(60, 160); x < W; x += R(180, 320)) tuft(x, sandTop(x) + R(8, 30), Math.round(R(5, 9)), R(90, 170), false);
-  tuft(R(0.02, 0.08) * W, H + 6, 9, 200, true);
-  tuft(R(0.92, 0.98) * W, H + 6, 9, 200, true);
 
-  const vents = Array.from({ length: Math.max(2, Math.round(W / 600)) }, () => {
-    const x = R(0.1, 0.9) * W;
-    return { x, y: sandTop(x) + 4 };
+  return { R, pick, coral, rock, starfish, shell };
+}
+
+/** One rock with corals on it, painted on its own transparent canvas. */
+function cluster(random: Random, x: number, z: number, width: number, rockHeight: number): Cluster {
+  const height = rockHeight + width * 0.45;
+  const scale = Math.min(CLUSTER_PIXELS, 1024 / width);
+  const canvas = makeCanvas(width * scale, height * scale);
+  const g = canvas.getContext("2d")!;
+  g.setTransform(scale, 0, 0, scale, 0, 0);
+  g.lineCap = g.lineJoin = "round";
+  const b = brushes(g, random);
+  const base = height - 4;
+  const top = b.rock(width / 2, base, width * 0.92, rockHeight);
+  const n = width > 300 ? 4 : 2;
+  for (let i = 0; i < n; i++) {
+    const cx = width / 2 + (i / (n - 1) - 0.5) * width * 0.62 + b.R(-12, 12);
+    b.coral(cx, top(cx) + 6, b.R(50, 100) * (width / 400));
+  }
+  return { canvas, x, z, width, height, sink: 8 };
+}
+
+export function paintScenery(tank: TankShape, seed = 11): Scenery {
+  const random = seeded(seed);
+  const R = (a: number, b: number) => a + (b - a) * random();
+  const pick = <T>(list: readonly T[]) => list[Math.floor(random() * list.length)];
+  const mid = tank.width / 2;
+  /** Half the width of the view at depth z. */
+  const half = (z: number) => ((tank.width / 2) * (tank.camera + z)) / tank.camera;
+
+  // Clusters: a row along the back wall, a big one at each side, and a small one in the middle distance.
+  const clusters: Cluster[] = [];
+  const backZ = tank.depth - 70;
+  const backCount = Math.max(3, Math.round((2 * half(backZ)) / 480));
+  for (let k = 0; k < backCount; k++) {
+    const x = mid - half(backZ) + ((k + 0.5) / backCount) * 2 * half(backZ) + R(-60, 60);
+    clusters.push(cluster(random, x, backZ + R(-40, 30), R(300, 440), R(80, 150)));
+  }
+  for (const side of [-1, 1]) {
+    const z = R(260, 480);
+    clusters.push(cluster(random, mid + side * (half(z) - R(20, 80)), z, R(380, 500), R(140, 220)));
+  }
+  const midZ = R(520, 700);
+  clusters.push(cluster(random, mid + R(-0.25, 0.25) * half(midZ), midZ, R(170, 230), R(50, 80)));
+
+  // The back wall: two hazy ridges of distant reef rising from the sand, clear water above.
+  const wallWidth = 2 * half(tank.depth) * 1.2;
+  const wallHeight = tank.height;
+  const wall = makeCanvas(2048, (2048 * wallHeight) / wallWidth);
+  const w = wall.getContext("2d")!;
+  w.setTransform(wall.width / wallWidth, 0, 0, wall.height / wallHeight, 0, 0);
+  w.lineCap = w.lineJoin = "round";
+  const ridge = (base: number, amp: number, color: string, phase: number) => {
+    w.beginPath();
+    w.moveTo(0, wallHeight);
+    for (let x = 0; x <= wallWidth + 20; x += 20) {
+      const wave = 0.55 * Math.sin(x * 0.0041 + phase) + 0.3 * Math.sin(x * 0.011 + phase * 2.1) + 0.15 * Math.sin(x * 0.027 + phase * 3.7);
+      w.lineTo(x, base - amp * wave);
+    }
+    w.lineTo(wallWidth, wallHeight);
+    w.closePath();
+    w.fillStyle = color;
+    w.fill();
+  };
+  ridge(wallHeight * 0.6, 60, "rgba(40, 112, 160, 0.5)", 1.3);
+  for (let x = R(0, 60); x < wallWidth; x += R(70, 160)) {
+    const y = wallHeight * 0.6 + R(-10, 30), s = R(40, 90);
+    w.fillStyle = w.strokeStyle = `rgba(${Math.round(R(55, 85))}, ${Math.round(R(118, 142))}, ${Math.round(R(165, 188))}, 0.5)`;
+    if (random() < 0.5) {
+      w.beginPath();
+      w.ellipse(x, y, s, s * 0.7, 0, Math.PI, 0);
+      w.fill();
+    } else {
+      w.lineWidth = s * 0.18;
+      for (let k = 0; k < 4; k++) {
+        const spread = (k - 1.5) * s;
+        w.beginPath();
+        w.moveTo(x + spread * 0.25, y);
+        w.quadraticCurveTo(x + spread * 0.5, y - s * 0.6, x + spread * 0.4 + R(-8, 8), y - s * R(0.8, 1.3));
+        w.stroke();
+      }
+    }
+  }
+  ridge(wallHeight * 0.74, 40, "rgba(30, 90, 132, 0.85)", 4.1);
+  ridge(wallHeight * 0.88, 18, "rgba(24, 76, 116, 1)", 2.2);
+
+  // The sand, seen from above: canvas x runs across, canvas top is the back of the tank.
+  const floorHalf = half(tank.depth + 120) * 1.15;
+  const floor = { left: mid - floorHalf, right: mid + floorHalf, front: -200, back: tank.depth + 40 };
+  const floorCanvas = makeCanvas(2048, Math.max(512, (2048 * (floor.back - floor.front)) / (floor.right - floor.left)));
+  const f = floorCanvas.getContext("2d")!;
+  const sx = floorCanvas.width / (floor.right - floor.left), sz = floorCanvas.height / (floor.back - floor.front);
+  // Draw in world units with x as given and y = z measured from the back.
+  f.setTransform(sx, 0, 0, sz, -floor.left * sx, 0);
+  const toY = (z: number) => floor.back - z;
+  const sand = f.createLinearGradient(0, 0, 0, floor.back - floor.front);
+  sand.addColorStop(0, "#d9c391");
+  sand.addColorStop(1, "#ead9a8");
+  f.fillStyle = sand;
+  f.fillRect(floor.left, 0, floor.right - floor.left, floor.back - floor.front);
+  f.lineCap = f.lineJoin = "round";
+  f.strokeStyle = "rgba(160, 128, 80, 0.3)";
+  f.lineWidth = 3;
+  for (let z = floor.front + 30; z < floor.back; z += 36) {
+    f.beginPath();
+    for (let x = floor.left; x <= floor.right; x += 18) {
+      const y = toY(z) + 7 * Math.sin(x * 0.02 + z * 0.13) + 4 * Math.sin(x * 0.051 + z);
+      if (x === floor.left) f.moveTo(x, y);
+      else f.lineTo(x, y);
+    }
+    f.stroke();
+  }
+  // Soft shadows under the clusters.
+  for (const c of clusters) {
+    const shadow = f.createRadialGradient(c.x, toY(c.z), 0, c.x, toY(c.z), c.width * 0.6);
+    shadow.addColorStop(0, "rgba(70, 60, 40, 0.35)");
+    shadow.addColorStop(1, "rgba(70, 60, 40, 0)");
+    f.fillStyle = shadow;
+    f.beginPath();
+    f.ellipse(c.x, toY(c.z), c.width * 0.6, 90, 0, 0, Math.PI * 2);
+    f.fill();
+  }
+  const fb = brushes(f, random);
+  for (let k = 0; k < (floor.right - floor.left) / 6; k++) {
+    f.fillStyle = pick(["#cdb07a", "#b49565", "#e8d9ad", "#a98d62"]);
+    f.beginPath();
+    f.ellipse(R(floor.left, floor.right), R(0, floor.back - floor.front), R(2, 5), R(2, 5), 0, 0, Math.PI * 2);
+    f.fill();
+  }
+  for (let k = 0; k < 14; k++) {
+    const x = R(floor.left, floor.right), y = toY(R(40, tank.depth - 100));
+    if (random() < 0.5) fb.starfish(x, y, R(12, 20), pick(["#ff8a50", "#e8383d", "#ffb347", "#c34bd6"]));
+    else fb.shell(x, y, R(8, 13), pick(["#f6e7d0", "#f2c9b8", "#e6d5f2"]));
+  }
+
+  // Seagrass in tufts across the sand, plus taller tufts in the front corners.
+  const blades: Blade[] = [];
+  const tuft = (x: number, z: number, count: number, tall: number) => {
+    for (let i = 0; i < count; i++) {
+      blades.push({ x: x + R(-18, 18), z: z + R(-14, 14), height: tall * R(0.55, 1), width: R(7, 12), color: pick(GRASS), phase: R(0, Math.PI * 2) });
+    }
+  };
+  const tufts = Math.round(tank.width / 180);
+  for (let k = 0; k < tufts; k++) {
+    const z = R(120, tank.depth - 80);
+    tuft(mid + R(-0.95, 0.95) * half(z), z, Math.round(R(5, 9)), R(90, 170));
+  }
+  for (const side of [-1, 1]) tuft(mid + side * half(40) * R(0.8, 0.92), 40, 9, 210);
+
+  const vents = Array.from({ length: Math.max(3, Math.round(tank.width / 500)) }, () => {
+    const z = R(150, tank.depth - 150);
+    return { x: mid + R(-0.85, 0.85) * half(z), z };
   });
 
-  return { canvas, blades, vents };
+  return { wall: { canvas: wall, width: wallWidth, height: wallHeight }, floor: { canvas: floorCanvas, ...floor }, clusters, blades, vents };
 }

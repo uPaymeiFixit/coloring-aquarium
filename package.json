@@ -9,6 +9,10 @@
   },
   "devDependencies": {
     "@types/bun": "^1.4.5",
+    "@types/three": "^0.187.0",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "three": "^0.187.0"
   }
 }

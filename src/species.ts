@@ -227,7 +227,7 @@ const parrotfish: Species = {
   length: 230,
   speed: 75,
   school: 1,
-  band: [0.15, 0.75],
+  band: [0.07, 0.9],
   rig: { kind: "swim", beat: 7, amplitude: 0.06, waves: 0.9, sweep: 0.25, rigid: 0.62 },
   presets: [
     { tail: "#ff6fae", dorsal: "#14b3a6", anal: "#14b3a6", pelvic: "#ff6fae", body: "#2fae4e", belly: "#a5d93a", head: "#38b6f2", beak: "#f4ecd2", pectoral: "#ff7a1a" },
@@ -284,7 +284,7 @@ const school: Species = {
   length: 100,
   speed: 95,
   school: 7,
-  band: [0.2, 0.7],
+  band: [0.1, 0.88],
   rig: { kind: "swim", beat: 11, amplitude: 0.07, waves: 0.8, sweep: 0.3, rigid: 0.6 },
   presets: [
     { tail: "#ffc928", dorsal: "#ffc928", anal: "#ffc928", pelvic: "#6b46c9", body: "#ffc928", front: "#6b46c9", pectoral: "#ffc928" },
@@ -324,7 +324,7 @@ const shark: Species = {
   length: 430,
   speed: 60,
   school: 1,
-  band: [0.35, 0.78],
+  band: [0.22, 0.9],
   rig: { kind: "swim", beat: 4, amplitude: 0.05, waves: 0.7, sweep: 0.2, rigid: 0.66 },
   presets: [
     {
@@ -387,7 +387,7 @@ const angelfish: Species = {
   length: 165,
   speed: 45,
   school: 1,
-  band: [0.2, 0.7],
+  band: [0.1, 0.88],
   rig: { kind: "swim", beat: 5, amplitude: 0.03, waves: 0.6, sweep: 0.18, rigid: 0.55 },
   presets: [
     { tail: "#ffc928", dorsal: "#2864d8", anal: "#2864d8", body: "#ffc928", stripes: "#2864d8", face: "#38b6f2", pectoral: "#ffc928" },
@@ -437,7 +437,7 @@ const turtle: Species = {
   length: 300,
   speed: 45,
   school: 1,
-  band: [0.25, 0.7],
+  band: [0.14, 0.9],
   rig: {
     kind: "paddle",
     beat: 2.2,
@@ -494,7 +494,7 @@ const jellyfish: Species = {
   length: 150,
   speed: 35,
   school: 1,
-  band: [0.12, 0.62],
+  band: [0.06, 0.7],
   rig: { kind: "pulse", beat: 2.6, bellEnd: 0.41, squeeze: 0.16, sway: 0.06 },
   presets: [
     { tentacles: "#ff6fae", arms: "#ffb3c9", bell: "#ffb3c9", rim: "#ff6fae", spots: "#c34bd6" },

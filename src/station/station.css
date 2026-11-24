@@ -28,6 +28,12 @@ body {
   touch-action: manipulation;
 }
 
+html {
+  /* Safari paints anything outside the page, such as the strip behind an iPhone's home indicator in a Home
+     Screen web app, with the page's solid background color, or white if it has none. Gradients don't count. */
+  background-color: #1677ad;
+}
+
 body {
   background: linear-gradient(180deg, #86d8ee 0%, #3aa7d6 50%, #1677ad 100%);
 }
@@ -223,6 +229,7 @@ body[data-screen="color"] #color {
   background: radial-gradient(ellipse at 50% 35%, #e9f9ff 0%, #c4ecf8 70%, #a9e0f2 100%);
   box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.55), 0 6px 0 rgba(10, 70, 110, 0.2);
   overflow: hidden;
+  touch-action: none;
 }
 
 .frame {
@@ -378,11 +385,169 @@ body[data-screen="color"] #color {
 
   .palette {
     grid-template-columns: repeat(8, var(--swatch));
-    --swatch: clamp(44px, calc((100vw - 140px) / 8), 72px);
+    --swatch: clamp(34px, calc((100vw - 94px) / 8), 72px);
   }
 
   .animals {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Phones held upright: options, tools, colors and Send each get a full-width row under the drawing. */
+@media (orientation: portrait) and (max-width: 600px) {
+  #color {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 1fr) 64px 72px auto 60px;
+    grid-template-areas:
+      "top"
+      "stage"
+      "options"
+      "tools"
+      "palette"
+      "send";
+    gap: 8px;
+  }
+
+  .top h1 {
+    font-size: 22px;
+  }
+
+  .back {
+    height: 48px;
+    font-size: 18px;
+  }
+
+  .tools {
+    gap: 6px;
+  }
+
+  .tools button {
+    height: 72px;
+    font-size: 13px;
+  }
+
+  .tools .spacer {
+    flex: 0;
+  }
+
+  .tools svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .options button {
+    width: 52px;
+    height: 52px;
+  }
+
+  .options canvas {
+    width: 40px;
+    height: 40px;
+  }
+
+  #pick h1 {
+    font-size: 28px;
+  }
+
+  .animal canvas {
+    height: clamp(70px, 12vh, 150px);
+  }
+
+  .animal b {
+    font-size: 20px;
+  }
+}
+
+/* Phones held sideways: icon-sized tools down the left, a four-column palette on the right. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #color {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+    grid-template-rows: 44px minmax(0, 1fr) 56px;
+    gap: 8px;
+  }
+
+  .top h1 {
+    font-size: 22px;
+  }
+
+  .back {
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .tools {
+    gap: 6px;
+  }
+
+  .tools button {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+    font-size: 11px;
+  }
+
+  .tools svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .tools .spacer {
+    flex: 0;
+  }
+
+  .palette {
+    --swatch: clamp(28px, calc((100dvh - 150px) / 4), 44px);
+    grid-template-columns: repeat(4, var(--swatch));
+    gap: 8px;
+  }
+
+  .send {
+    font-size: 15px;
+  }
+
+  .send svg {
+    width: 30px;
+    height: 30px;
+  }
+
+  .options button {
+    width: 48px;
+    height: 48px;
+  }
+
+  .options canvas {
+    width: 36px;
+    height: 36px;
+  }
+
+  #pick {
+    gap: 10px;
+  }
+
+  #pick h1 {
+    font-size: 24px;
+  }
+
+  .animals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .animal {
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .animal canvas {
+    height: clamp(50px, 20vh, 120px);
+  }
+
+  .animal b {
+    font-size: 17px;
+  }
+
+  .animal small {
+    display: none;
   }
 }
 
