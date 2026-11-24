@@ -1,6 +1,6 @@
 // Canvas drawing for the coloring templates: the white base, ink lines, region fills, patterns and finished images.
 // Used by the station (while a child colors) and by the tank (for the starter animals).
-import type { Eye, Fill, PatternKind, Species } from "./species.ts";
+import { circle, type Eye, type Fill, type PatternKind, type Species } from "./species.ts";
 
 export const INK = "#1f2c3b";
 
@@ -10,6 +10,7 @@ export const PALETTE = [
   "#6b46c9", "#c34bd6", "#ff6fae", "#ffb3c9", "#8a5632", "#f3c48b", "#9aa4b0", "#262b33",
 ];
 
+/** The species' regions in drawing order, then one round region per eye on top. */
 export interface Template {
   species: Species;
   paths: Path2D[];
@@ -24,11 +25,13 @@ export interface Paint {
 
 export function compile(species: Species): Template {
   const byId = new Map(species.regions.map((r) => [r.id, new Path2D(r.d)] as const));
+  // Eyes are colorable like any region; only the pupil is drawn on top as ink.
+  const eyes = species.eyes.map((e) => new Path2D(circle(e.x, e.y, e.r)));
   return {
     species,
-    paths: species.regions.map((r) => byId.get(r.id)!),
-    clips: species.regions.map((r) => (r.clipTo ? (byId.get(r.clipTo) ?? null) : null)),
-    details: species.regions.map((r) => (r.details ?? []).map((d) => new Path2D(d))),
+    paths: [...species.regions.map((r) => byId.get(r.id)!), ...eyes],
+    clips: [...species.regions.map((r) => (r.clipTo ? (byId.get(r.clipTo) ?? null) : null)), ...eyes.map(() => null)],
+    details: [...species.regions.map((r) => (r.details ?? []).map((d) => new Path2D(d))), ...eyes.map(() => [])],
   };
 }
 
@@ -100,20 +103,18 @@ export function drawInk(g: CanvasRenderingContext2D, t: Template, scale: number)
       g.restore();
     }
   });
-  for (const eye of t.species.eyes) drawEye(g, eye, w);
+  for (const eye of t.species.eyes) drawPupil(g, eye);
   g.restore();
 }
 
-function drawEye(g: CanvasRenderingContext2D, e: Eye, w: number) {
+/** The pupil and its highlight; the eye's outline and color come from its region. */
+function drawPupil(g: CanvasRenderingContext2D, e: Eye) {
   const dot = (x: number, y: number, r: number, color: string) => {
     g.beginPath();
     g.arc(x, y, r, 0, Math.PI * 2);
     g.fillStyle = color;
     g.fill();
   };
-  dot(e.x, e.y, e.r, "#fff");
-  g.lineWidth = w * 0.8;
-  g.stroke();
   dot(e.x + e.r * 0.14, e.y + e.r * 0.02, e.r * 0.58, INK);
   dot(e.x + e.r * 0.32, e.y - e.r * 0.26, e.r * 0.2, "#fff");
 }

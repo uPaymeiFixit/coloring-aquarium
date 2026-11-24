@@ -1,24 +1,24 @@
-// Tank display: draws the reef and every drawing sent from a station as a swimming animal, live from the server.
-// World units: the tank is 1000 units tall and as wide as the screen's aspect ratio allows; y runs down.
+// Tank display: draws the reef and every animal the server lists (children's drawings and pre-colored starters)
+// swimming in it, live. World units: the tank is 1000 units tall and as wide as the screen's aspect ratio allows;
+// y runs down.
 import { compile, presetImage } from "../coloring.ts";
 import { SPECIES, speciesById, type Species } from "../species.ts";
 import { createProgram, gridMesh, screenTriangle, uploadTexture, type Mesh } from "./gl.ts";
 import { paintReef, type Blade } from "./reef.ts";
 import * as glsl from "./shaders.ts";
 
+/** One animal in the tank: a child's drawing (`url`), or a starter drawn here from a preset coloring. */
 interface Fish {
   id: string;
   species: string;
-  url: string;
   createdAt: number;
+  url?: string;
+  preset?: number;
 }
 
 type Message = { type: "snapshot"; fish: Fish[] } | { type: "add"; fish: Fish } | { type: "remove"; id: string };
 
 const params = new URLSearchParams(location.search);
-/** Starter animals keep the tank lively until this many drawings have arrived. */
-const STARTERS = Number(params.get("starters") ?? 8);
-const STARTER_PLAN = ["parrotfish", "jellyfish", "school", "angelfish", "turtle", "parrotfish", "shark", "jellyfish"];
 /** How long a new arrival glows so its owner can spot it. */
 const GLOW_SECONDS = 14;
 const TEXTURE_SIDE = 800;
@@ -151,12 +151,10 @@ class Animal extends Mover {
   }
 }
 
-/** One drawing (or starter) in the tank: one animal, or a whole school. */
+/** One drawing or starter in the tank: one animal, or a whole school. */
 interface Entry {
   id: string;
   species: Species;
-  starter: boolean;
-  created: number;
   animals: Animal[];
   pilot: Mover | null;
   leaving: boolean;
@@ -497,7 +495,7 @@ function drawHalos() {
     const center = e.pilot ?? e.animals[0];
     const strength = Math.min(1, glow / 3) * Math.min(1, (GLOW_SECONDS - glow) / 0.6);
     gl.uniform2f(u("uCenter"), center.x, center.y);
-    gl.uniform1f(u("uRadius"), e.species.length * (e.species.school > 1 ? 2.2 : 0.95));
+    gl.uniform1f(u("uRadius"), e.species.length * (e.species.school > 1 ? 2.5 : 1.1));
     gl.uniform1f(u("uStrength"), strength);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
@@ -575,45 +573,31 @@ function frame(now: number) {
   requestAnimationFrame(frame);
 }
 
-// Drawings from the server, and starter animals while there are few
+// Animals from the server
 
-const starterCounts = new Map<string, number>();
-let starterSerial = 0;
+/** A child's drawing drops in and glows; a starter swims in from the side. */
+const arrival = (f: Fish) => (f.preset === undefined ? "arrive" : "enter");
 
-function addStarter(how: "place" | "enter") {
-  const s = speciesById(STARTER_PLAN[starterSerial++ % STARTER_PLAN.length])!;
-  const seen = starterCounts.get(s.id) ?? 0;
-  starterCounts.set(s.id, seen + 1);
-  const image = presetImage(compile(s), s.presets[seen % s.presets.length], TEXTURE_SIDE);
-  const entry: Entry = { id: `starter-${starterSerial}`, species: s, starter: true, created: performance.now(), animals: [], pilot: null, leaving: false, loaded: true };
-  entries.set(entry.id, entry);
-  spawn(entry, new Look(uploadTexture(gl, image, true)), how);
-}
-
-/** Starters leave as drawings arrive, oldest first, and come back if the tank empties. */
-function balanceStarters(how: "place" | "enter") {
-  const present = [...entries.values()].filter((e) => !e.leaving);
-  const drawings = present.filter((e) => !e.starter).length;
-  const starters = present.filter((e) => e.starter).sort((p, q) => p.created - q.created);
-  const want = Math.max(0, STARTERS - drawings);
-  starters.slice(0, Math.max(0, starters.length - want)).forEach(leave);
-  for (let k = starters.length; k < want; k++) addStarter(how);
-}
-
-async function addDrawing(f: Fish, how: "arrive" | "place") {
+async function addAnimal(f: Fish, how: "arrive" | "place" | "enter") {
   const s = speciesById(f.species);
   if (!s || entries.has(f.id)) return;
-  const entry: Entry = { id: f.id, species: s, starter: false, created: f.createdAt, animals: [], pilot: null, leaving: false, loaded: false };
+  const entry: Entry = { id: f.id, species: s, animals: [], pilot: null, leaving: false, loaded: false };
   entries.set(f.id, entry);
   try {
-    const image = new Image();
-    image.src = f.url;
-    await image.decode();
+    let image: TexImageSource;
+    if (f.preset === undefined) {
+      const drawing = new Image();
+      drawing.src = f.url ?? "";
+      await drawing.decode();
+      image = drawing;
+    } else {
+      image = presetImage(compile(s), s.presets[f.preset % s.presets.length], TEXTURE_SIDE);
+    }
     if (entry.leaving) return;
     entry.loaded = true;
     spawn(entry, new Look(uploadTexture(gl, image, true)), how);
   } catch (err) {
-    console.warn(`Could not load ${f.url}`, err);
+    console.warn(`Could not load ${f.url ?? f.id}`, err);
     entries.delete(f.id);
   }
 }
@@ -622,10 +606,9 @@ let snapshotSeen = false;
 
 function reconcile(list: Fish[]) {
   const ids = new Set(list.map((f) => f.id));
-  for (const e of [...entries.values()]) if (!e.starter && !ids.has(e.id)) leave(e);
-  // On the first load drawings are already in the tank; after a reconnect, any new ones arrive.
-  for (const f of list) addDrawing(f, snapshotSeen ? "arrive" : "place");
-  balanceStarters(snapshotSeen ? "enter" : "place");
+  for (const e of [...entries.values()]) if (!ids.has(e.id)) leave(e);
+  // On the first load everything is already in the tank; after a reconnect, anything new swims in.
+  for (const f of list) addAnimal(f, snapshotSeen ? arrival(f) : "place");
   snapshotSeen = true;
 }
 
@@ -643,12 +626,10 @@ function connect() {
     if (message.type === "snapshot") {
       reconcile(message.fish);
     } else if (message.type === "add") {
-      addDrawing(message.fish, "arrive");
-      balanceStarters("enter");
+      addAnimal(message.fish, arrival(message.fish));
     } else {
       const e = entries.get(message.id);
       if (e) leave(e);
-      balanceStarters("enter");
     }
   };
   socket.onclose = () => {
@@ -694,8 +675,4 @@ canvas.addEventListener("webglcontextrestored", () => location.reload());
 
 resize();
 connect();
-// If the server is slow to answer, don't leave the tank empty.
-setTimeout(() => {
-  if (!snapshotSeen) balanceStarters("place");
-}, 1500);
 requestAnimationFrame(frame);

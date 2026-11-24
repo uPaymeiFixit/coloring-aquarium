@@ -254,9 +254,11 @@ in vec2 vLocal;
 out vec4 outColor;
 void main() {
   float d = length(vLocal);
-  float glow = exp(-d * d * 3.0);
-  float rays = pow(0.5 + 0.5 * cos(atan(vLocal.y, vLocal.x) * 7.0 + uClock * 1.2), 10.0) * exp(-d * 2.2);
-  float ring = exp(-pow((d - 0.55 - 0.08 * sin(uClock * 3.0)) * 9.0, 2.0)) * 0.5;
-  float a = (glow * 0.45 + rays * 0.35 + ring) * uStrength;
+  // Fade everything to nothing before the edge of the quad, so its square never shows.
+  float edge = 1.0 - smoothstep(0.6, 1.0, d);
+  float glow = exp(-d * d * 4.0);
+  float rays = pow(0.5 + 0.5 * cos(atan(vLocal.y, vLocal.x) * 7.0 + uClock * 1.2), 10.0) * exp(-d * 2.6);
+  float ring = exp(-pow((d - 0.5 - 0.06 * sin(uClock * 3.0)) * 9.0, 2.0)) * 0.5;
+  float a = (glow * 0.45 + rays * 0.35 + ring) * uStrength * edge;
   outColor = vec4(vec3(1.0, 0.94, 0.65) * a, 0.0);
 }`;

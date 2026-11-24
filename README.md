@@ -17,7 +17,7 @@ The server prints the addresses to open:
 |---|---|---|
 | Coloring station | each iPad | `http://<server-ip>:8080/` |
 | Tank | the TV or projector | `http://<server-ip>:8080/tank` |
-| Remove drawings | a staff phone or laptop | `http://<server-ip>:8080/admin` |
+| Manage the animals | a staff phone or laptop | `http://<server-ip>:8080/admin` |
 
 Every device must be on the same network as the server. macOS asks once whether Bun may accept incoming
 connections; allow it, or the iPads can't reach the server.
@@ -34,19 +34,22 @@ connections; allow it, or the iPads can't reach the server.
 ## What happens
 
 1. A child picks one of six animals: parrotfish, fish school, reef shark, angelfish, sea turtle or jellyfish.
-2. They color it with the **Brush** (four sizes; it starts on the second-smallest), **Fill** (tap a part),
-   **Patterns** (dots, stripes, zigzag, scales, hearts) and **Eraser**. Paint stays inside the animal; Undo and
-   Start over are there.
+2. They color it with the **Brush** (four sizes; it starts on the second-smallest), **Fill** (tap a part, eyes
+   included), **Patterns** (dots, stripes, zigzag, scales, hearts) and **Eraser**. Paint stays inside the
+   animal; Undo and Start over are there.
 3. **Send to the tank** uploads the drawing as a PNG, and the drawing swims off the iPad screen (a jellyfish
    floats up; a fish school splits into its seven fish). The station then shows "Look at the big tank!" and
    returns to the picker after nine seconds. An abandoned drawing is dropped after two minutes without a touch.
 4. On the tank, the drawing drops in from the surface with bubbles and glows for 14 seconds so its owner can
    find it. Fish bend as they swim, the turtle paddles, the jellyfish pulses, and one fish-school drawing
    becomes seven fish.
-5. The tank keeps the newest 30 drawings. When the 31st arrives, the oldest swims away and its file is deleted.
-   Until eight drawings have arrived, starter animals fill the tank and leave one by one as drawings come in.
+5. A new tank starts with eight pre-colored starter animals, and each new drawing replaces the oldest starter.
+   The tank keeps the newest 30 drawings: when the 31st arrives, the oldest swims away and its file is deleted.
+6. The admin page lists every animal in the tank, starters included, and removes any of them.
+   **Add starter animals** tops the starters back up to eight.
 
-Drawings live in `data/` (the PNGs and `data/tank.json`), so the tank survives a server restart.
+The tank's animals live in `data/` (the PNGs and `data/tank.json`), so the tank survives a server restart
+exactly as the admin page left it.
 
 ## Settings
 
@@ -54,25 +57,25 @@ Drawings live in `data/` (the PNGs and `data/tank.json`), so the tank survives a
 |---|---|---|
 | `PORT` | `8080` | Server port |
 | `TANK_SIZE` | `30` | Drawings kept in the tank |
+| `STARTERS` | `8` | Starter animals in a new tank, and what **Add starter animals** tops up to |
 | `SEND_COOLDOWN` | `3` | Seconds one device must wait between sends |
-| `DATA_DIR` | `./data` | Where drawings are stored |
+| `DATA_DIR` | `./data` | Where the tank's animals are stored |
 
 | Page option | Meaning |
 |---|---|
 | `/?idle=120` | Seconds before an untouched drawing is dropped |
-| `/tank?starters=8` | Starter animals shown until that many drawings arrive (`0` for none) |
 | `/tank?label=0` | Hide the "Color a sea animal at …" address in the corner |
 
 ## Code
 
 | File | What it does |
 |---|---|
-| `server.ts` | Bun server: the three pages, the upload and admin API, the PNG files, and a WebSocket that pushes tank changes to every open tank |
+| `server.ts` | Bun server: the three pages, the upload and admin API, the tank's animals and PNG files, and a WebSocket that pushes tank changes to every open tank |
 | `src/species.ts` | The six animals: outline art cut into colorable regions, eyes, and how each one moves |
 | `src/coloring.ts` | Canvas drawing shared by the station and the tank: white base, ink lines, region fills, patterns |
 | `src/station/` | The iPad coloring page |
 | `src/display/` | The tank: WebGL renderer (`main.ts`, `shaders.ts`, `gl.ts`) and the painted reef backdrop (`reef.ts`) |
-| `src/admin/` | The page that removes drawings |
+| `src/admin/` | The page that lists and removes the tank's animals and adds the starters back |
 
 Each animal in `src/species.ts` is a list of regions in drawing order; a later region covers earlier ones, and
 `clipTo` limits a region to the inside of another (a belly band inside the body, say). The tank bends the

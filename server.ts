@@ -1,59 +1,95 @@
 // Local server for the coloring aquarium. Serves the coloring station, the tank display and the admin page,
-// keeps the drawings currently in the tank on disk, and pushes every change to open tank displays over a WebSocket.
+// keeps the tank's animals (children's drawings and pre-colored starters) on disk, and pushes every change
+// to open tank displays over a WebSocket.
 import { mkdir, rename, unlink } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import adminPage from "./src/admin/index.html";
 import tankPage from "./src/display/index.html";
 import stationPage from "./src/station/index.html";
-import { SPECIES } from "./src/species.ts";
+import { speciesById } from "./src/species.ts";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const DATA_DIR = process.env.DATA_DIR ?? join(import.meta.dir, "data");
 /** Drawings kept in the tank. When a new one arrives past this, the oldest swims away and is deleted. */
 const TANK_SIZE = Number(process.env.TANK_SIZE ?? 30);
+/** Pre-colored starter animals put in an empty tank. Each new drawing replaces the oldest one. */
+const STARTERS = Number(process.env.STARTERS ?? 8);
 /** Seconds a station must wait between sends. */
 const SEND_COOLDOWN = Number(process.env.SEND_COOLDOWN ?? 3);
 const MAX_UPLOAD = 4 * 1024 * 1024;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const STARTER_PLAN = ["parrotfish", "jellyfish", "school", "angelfish", "turtle", "parrotfish", "shark", "jellyfish"];
 
 const FISH_DIR = join(DATA_DIR, "fish");
 const TANK_FILE = join(DATA_DIR, "tank.json");
-const speciesIds = new Set(SPECIES.map((s) => s.id));
 
+/** One animal in the tank: a child's drawing (`url`), or a starter the tank draws from a preset coloring. */
 interface Fish {
   id: string;
   species: string;
   createdAt: number;
-  url: string;
+  url?: string;
+  preset?: number;
 }
 
 const imagePath = (id: string) => join(FISH_DIR, `${id}.png`);
+const newId = () => `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+const isStarter = (f: Fish) => f.preset !== undefined;
 
 await mkdir(FISH_DIR, { recursive: true });
-let tank = await loadTank();
+const saved = await loadTank();
+let tank = saved.fish;
+// A new tank gets its starters, one fewer for each drawing already in it. After that the tank keeps whatever
+// the admin page leaves in it, across restarts.
+if (saved.isNew) {
+  addStarters(STARTERS - tank.length);
+  await saveTank();
+}
 const lastSend = new Map<string, number>();
 
-async function loadTank(): Promise<Fish[]> {
+/**
+ * The saved animals. `isNew` is true when nothing was saved yet, or when the save predates starters living
+ * on the server (a bare list of drawings).
+ */
+async function loadTank(): Promise<{ fish: Fish[]; isNew: boolean }> {
   const file = Bun.file(TANK_FILE);
-  if (!(await file.exists())) return [];
+  if (!(await file.exists())) return { fish: [], isNew: true };
   try {
-    const saved = (await file.json()) as Fish[];
+    const content = (await file.json()) as Fish[] | { fish: Fish[] };
     const kept: Fish[] = [];
-    for (const f of saved) {
-      if (speciesIds.has(f.species) && (await Bun.file(imagePath(f.id)).exists())) kept.push(f);
+    for (const f of Array.isArray(content) ? content : content.fish) {
+      const species = speciesById(f.species);
+      if (!species) continue;
+      if (isStarter(f) ? f.preset! < species.presets.length : await Bun.file(imagePath(f.id)).exists()) kept.push(f);
     }
-    return kept.slice(-TANK_SIZE);
+    const drawings = kept.filter((f) => !isStarter(f));
+    const dropped = new Set(drawings.slice(0, Math.max(0, drawings.length - TANK_SIZE)));
+    for (const f of dropped) await unlink(imagePath(f.id)).catch(() => {});
+    return { fish: kept.filter((f) => !dropped.has(f)), isNew: Array.isArray(content) };
   } catch (err) {
     console.warn(`Starting with an empty tank: could not read ${TANK_FILE}: ${err}`);
-    return [];
+    return { fish: [], isNew: true };
   }
 }
 
 async function saveTank() {
   const tmp = `${TANK_FILE}.tmp`;
-  await Bun.write(tmp, JSON.stringify(tank, null, 2));
+  await Bun.write(tmp, JSON.stringify({ fish: tank }, null, 2));
   await rename(tmp, TANK_FILE);
+}
+
+/** Adds starters until there are `target` of them, cycling through the plan and each species' preset colorings. */
+function addStarters(target: number): Fish[] {
+  const added: Fish[] = [];
+  for (let k = tank.filter(isStarter).length; k < target; k++) {
+    const species = STARTER_PLAN[k % STARTER_PLAN.length];
+    const sameSpecies = tank.filter((f) => isStarter(f) && f.species === species).length;
+    const starter: Fish = { id: newId(), species, createdAt: Date.now(), preset: sameSpecies % speciesById(species)!.presets.length };
+    tank.push(starter);
+    added.push(starter);
+  }
+  return added;
 }
 
 function publish(message: object) {
@@ -63,13 +99,13 @@ function publish(message: object) {
 async function forget(gone: Fish[]) {
   for (const f of gone) {
     publish({ type: "remove", id: f.id });
-    await unlink(imagePath(f.id)).catch(() => {});
+    if (!isStarter(f)) await unlink(imagePath(f.id)).catch(() => {});
   }
 }
 
 async function addFish(req: Request, sender: string): Promise<Response> {
   const species = new URL(req.url).searchParams.get("species") ?? "";
-  if (!speciesIds.has(species)) return new Response("Unknown animal", { status: 400 });
+  if (!speciesById(species)) return new Response("Unknown animal", { status: 400 });
   const now = Date.now();
   if (now - (lastSend.get(sender) ?? 0) < SEND_COOLDOWN * 1000) {
     return new Response("Sending too fast; try again in a moment", { status: 429 });
@@ -80,14 +116,19 @@ async function addFish(req: Request, sender: string): Promise<Response> {
   }
   lastSend.set(sender, now);
 
-  const id = `${now.toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+  const id = newId();
   await Bun.write(imagePath(id), body);
   const fish: Fish = { id, species, createdAt: now, url: `/fish/${id}.png` };
   tank.push(fish);
-  const evicted = tank.splice(0, Math.max(0, tank.length - TANK_SIZE));
+  // The drawing replaces the oldest starter while any are left; past TANK_SIZE the oldest drawing goes too.
+  const drawings = tank.filter((f) => !isStarter(f));
+  const gone = [tank.find(isStarter), ...drawings.slice(0, Math.max(0, drawings.length - TANK_SIZE))].filter(
+    (f): f is Fish => f !== undefined,
+  );
+  tank = tank.filter((f) => !gone.includes(f));
   await saveTank();
   publish({ type: "add", fish });
-  await forget(evicted);
+  await forget(gone);
   console.log(`New ${species} from ${sender} (${Math.round(body.length / 1024)} KB); ${tank.length} in the tank`);
   return Response.json({ id }, { status: 201 });
 }
@@ -107,6 +148,13 @@ async function clearTank(): Promise<Response> {
   await saveTank();
   await forget(gone);
   return new Response(null, { status: 204 });
+}
+
+async function restoreStarters(): Promise<Response> {
+  const added = addStarters(STARTERS);
+  await saveTank();
+  for (const fish of added) publish({ type: "add", fish });
+  return Response.json(added, { status: 201 });
 }
 
 async function serveImage(file: string): Promise<Response> {
@@ -142,6 +190,7 @@ const server = Bun.serve({
       DELETE: () => clearTank(),
     },
     "/api/fish/:id": { DELETE: (req) => removeFish(req.params.id) },
+    "/api/starters": { POST: () => restoreStarters() },
     "/api/info": () => Response.json({ station: addresses("/"), tank: addresses("/tank") }),
     "/fish/:file": (req) => serveImage(req.params.file),
   },
@@ -159,7 +208,7 @@ const server = Bun.serve({
 });
 
 const [lanStation] = addresses("/");
-console.log(`Coloring aquarium is running (${tank.length} drawings in the tank).
+console.log(`Coloring aquarium is running (${tank.length} animals in the tank).
   Coloring station (iPads):  ${lanStation}
   Tank (big screen):         ${lanStation}tank
-  Remove drawings:           ${lanStation}admin`);
+  Manage the animals:        ${lanStation}admin`);

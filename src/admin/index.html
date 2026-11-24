@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tank Drawings</title>
+    <title>Tank Animals</title>
     <style>
       body {
         margin: 0;
@@ -22,8 +22,12 @@
         margin: 0;
         font-size: 26px;
       }
-      #count {
+      #count,
+      .note {
         color: #5b7287;
+      }
+      .note {
+        margin: 8px 0 0;
       }
       button {
         font: inherit;
@@ -52,7 +56,7 @@
         background: #fff;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
       }
-      .fish img {
+      .fish .art {
         width: 100%;
         height: 120px;
         object-fit: contain;
@@ -66,10 +70,12 @@
   </head>
   <body>
     <header>
-      <h1>Drawings in the tank</h1>
+      <h1>Animals in the tank</h1>
       <span id="count"></span>
+      <button id="starters">Add starter animals</button>
       <button id="clear" class="danger">Remove all</button>
     </header>
+    <p class="note">Starters are pre-colored animals that fill an empty tank. Each new drawing replaces the oldest one.</p>
     <div id="list"></div>
     <script type="module" src="./admin.ts"></script>
   </body>
