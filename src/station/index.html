@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0f6f9c" />
+    <title>Color a Sea Animal</title>
+    <link rel="stylesheet" href="./station.css" />
+  </head>
+  <body data-screen="pick">
+    <section id="pick" class="screen">
+      <h1>Pick a sea animal to color</h1>
+      <div id="animals" class="animals"></div>
+    </section>
+
+    <section id="color" class="screen">
+      <header class="top">
+        <button id="back" class="back" aria-label="Pick another animal">
+          <svg viewBox="0 0 24 24"><path d="M15 4l-8 8 8 8" /></svg>
+          <span>Animals</span>
+        </button>
+        <h1 id="title"></h1>
+      </header>
+
+      <nav id="tools" class="tools">
+        <button data-tool="fill" aria-label="Fill">
+          <svg viewBox="0 0 24 24"><path class="ink-fill" d="M12 3c-3 4.5-6 7.6-6 11a6 6 0 0 0 12 0c0-3.4-3-6.5-6-11z" /></svg>
+          <span>Fill</span>
+        </button>
+        <button data-tool="brush" aria-label="Brush">
+          <svg viewBox="0 0 24 24">
+            <path d="M20.5 3.5l-9.2 9.2" />
+            <path class="ink-fill" d="M11.3 12.7c-2.4-.3-4.6 1.1-5 3.6-.3 1.6-1.4 2.6-3 2.9 2.9 2 7.6 1.6 8.6-2.2.4-1.6.2-3.1-.6-4.3z" />
+          </svg>
+          <span>Brush</span>
+        </button>
+        <button data-tool="pattern" aria-label="Patterns">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.5" />
+            <circle class="ink-fill" cx="9" cy="9" r="1.7" /><circle class="ink-fill" cx="15" cy="9.5" r="1.7" />
+            <circle class="ink-fill" cx="9.5" cy="15" r="1.7" /><circle class="ink-fill" cx="15" cy="15" r="1.7" />
+          </svg>
+          <span>Patterns</span>
+        </button>
+        <button data-tool="eraser" aria-label="Eraser">
+          <svg viewBox="0 0 24 24"><path d="M4 15.5l9-9 6 6-6.5 6.5H8z" /><path d="M9.5 10l6 6" /><path d="M13 19h7" /></svg>
+          <span>Eraser</span>
+        </button>
+        <div class="spacer"></div>
+        <button id="undo" aria-label="Undo">
+          <svg viewBox="0 0 24 24"><path d="M9 5L4 10l5 5" /><path d="M4 10h10a6 6 0 0 1 0 12h-3" /></svg>
+          <span>Undo</span>
+        </button>
+        <button id="restart" aria-label="Start over">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16" /><path d="M6.5 7l1 13h9l1-13" /><path d="M9.5 7V4h5v3" /><path d="M10.5 11v5.5M13.5 11v5.5" /></svg>
+          <span>Start over</span>
+        </button>
+      </nav>
+
+      <div id="stage" class="stage">
+        <div id="frame" class="frame">
+          <canvas id="paint"></canvas>
+          <canvas id="ink"></canvas>
+        </div>
+      </div>
+
+      <div id="options" class="options"></div>
+      <div id="palette" class="palette"></div>
+
+      <button id="send" class="send">
+        <svg viewBox="0 0 24 24">
+          <path class="ink-fill" d="M2.5 12c3-4.6 9-5.6 13.3-2.6L21 6v12l-5.2-3.4C11.5 17.6 5.5 16.6 2.5 12z" />
+          <circle cx="7.4" cy="11" r="1" fill="#fff" stroke="none" />
+        </svg>
+        <span>Send to the tank</span>
+      </button>
+    </section>
+
+    <section id="sent" class="screen">
+      <div class="sent-card">
+        <h1>Look at the big tank!</h1>
+        <p id="sent-text"></p>
+        <button id="again" class="again">Color another one</button>
+      </div>
+      <div class="bubbles" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </div>
+    </section>
+
+    <div id="toast" class="toast" hidden></div>
+    <script type="module" src="./station.ts"></script>
+  </body>
+</html>
